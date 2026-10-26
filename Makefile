@@ -41,7 +41,7 @@ build-GetBookingFunction:
 stack_output = $(shell aws cloudformation describe-stacks --stack-name $(STACK_NAME) \
 	--query "Stacks[0].Outputs[?OutputKey=='$(1)'].OutputValue" --output text)
 
-.PHONY: test build-all clean backup seed
+.PHONY: test build-all clean backup seed deploy-web
 
 test:
 	go test ./...
@@ -66,3 +66,9 @@ backup:
 seed:
 	aws lambda invoke --function-name $(call stack_output,SeedFunctionName) \
 		--cli-binary-format raw-in-base64-out --payload '{}' /dev/stdout
+
+# The bucket is private, so files are uploaded with your AWS credentials and
+# served only through CloudFront. The invalidation makes changes show up at once.
+deploy-web:
+	aws s3 sync web/ s3://$(call stack_output,WebBucketName) --delete
+	aws cloudfront create-invalidation --distribution-id $(call stack_output,DistributionId) --paths '/*'
