@@ -18,7 +18,9 @@ GO_BUILD = GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -tr
 LAMBDAS := \
 	SeedFunction:seed \
 	GetEventsFunction:get-events \
-	GetEventFunction:get-event
+	GetEventFunction:get-event \
+	CreateBookingFunction:create-booking \
+	GetBookingFunction:get-booking
 
 define build_lambda
 	$(GO_BUILD) -o $(ARTIFACTS_DIR)/bootstrap ./cmd/$(1)
@@ -30,6 +32,10 @@ build-GetEventsFunction:
 	$(call build_lambda,get-events)
 build-GetEventFunction:
 	$(call build_lambda,get-event)
+build-CreateBookingFunction:
+	$(call build_lambda,create-booking)
+build-GetBookingFunction:
+	$(call build_lambda,get-booking)
 
 # Reads one output value from the deployed CloudFormation stack.
 stack_output = $(shell aws cloudformation describe-stacks --stack-name $(STACK_NAME) \

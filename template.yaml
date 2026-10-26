@@ -2,8 +2,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
   bookinapp - small event ticket booking system.
-  S3 + CloudFront frontend, DynamoDB single-table storage, Go Lambdas behind an
-  HTTP API, and a Step Functions workflow for the multi-step booking flow.
+  S3 + CloudFront frontend, DynamoDB single-table storage, and Go Lambdas
+  behind an HTTP API.
 
 Parameters:
   PaymentFailureRate:
@@ -15,6 +15,9 @@ Parameters:
     Type: String
     Default: ""
     Description: Optional email address to subscribe to booking notifications. Leave empty to skip.
+
+Conditions:
+  HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
 
 Globals:
   Function:
@@ -120,6 +123,64 @@ Resources:
             ApiId: !Ref BookingApi
             Method: GET
             Path: /api/events/{id}
+
+  # Runs the whole booking flow: validate, reserve seat, pay, confirm (or
+  # release the seat and mark the booking FAILED). See internal/booking.
+  CreateBookingFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      CodeUri: .
+      Timeout: 15
+      Environment:
+        Variables:
+          PAYMENT_FAILURE_RATE: !Ref PaymentFailureRate
+          TOPIC_ARN: !Ref BookingTopic
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AppTable
+        - DynamoDBWritePolicy:
+            TableName: !Ref AppTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt BookingTopic.TopicName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref BookingApi
+            Method: POST
+            Path: /api/bookings
+
+  GetBookingFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AppTable
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref BookingApi
+            Method: GET
+            Path: /api/bookings/{id}
+
+  # "Booking confirmed" notifications. Subscribe an email via the
+  # NotificationEmail parameter, or watch the publish in the Lambda logs.
+  BookingTopic:
+    Type: AWS::SNS::Topic
+
+  BookingTopicEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasNotificationEmail
+    Properties:
+      TopicArn: !Ref BookingTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
 
 Outputs:
   TableName:

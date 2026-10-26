@@ -57,8 +57,8 @@ type Booking struct {
 }
 
 // BookingKey is everything needed to address a booking item in the base table.
-// The workflow carries it in its input so every step can write with a strongly
-// consistent, direct key instead of going through the (eventually consistent) GSI.
+// The booking flow writes through this direct key, never through the
+// (eventually consistent) GSI.
 type BookingKey struct {
 	UserID    string
 	CreatedAt string
