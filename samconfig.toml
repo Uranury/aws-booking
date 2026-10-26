@@ -3,6 +3,7 @@ version = 0.1
 
 [default.global.parameters]
 stack_name = "bookinapp"
+region = "eu-north-1"
 
 [default.build.parameters]
 cached = true
@@ -12,3 +13,7 @@ parallel = true
 capabilities = "CAPABILITY_IAM"
 resolve_s3 = true
 confirm_changeset = true
+s3_prefix = "bookinapp"
+region = "eu-north-1"
+parameter_overrides = "PaymentFailureRate=\"0\" NotificationEmail=\"\""
+image_repositories = []
