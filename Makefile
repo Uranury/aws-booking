@@ -63,9 +63,12 @@ backup:
 		--table-name $(call stack_output,TableName) \
 		--backup-name $(STACK_NAME)-$$(date +%Y%m%d-%H%M%S)
 
+# Writes the result to a file (not /dev/stdout) so it also works with the
+# Windows AWS CLI called from WSL.
 seed:
 	aws lambda invoke --function-name $(call stack_output,SeedFunctionName) \
-		--cli-binary-format raw-in-base64-out --payload '{}' /dev/stdout
+		--cli-binary-format raw-in-base64-out --payload '{}' seed-output.json
+	@cat seed-output.json; echo; rm -f seed-output.json
 
 # The bucket is private, so files are uploaded with your AWS credentials and
 # served only through CloudFront. The invalidation makes changes show up at once.

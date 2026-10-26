@@ -9,3 +9,6 @@ bootstrap
 *.swp
 .DS_Store
 Thumbs.db
+
+# Temporary output of make seed
+seed-output.json
