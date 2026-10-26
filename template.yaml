@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  bookinapp - small event ticket booking system.
+  S3 + CloudFront frontend, DynamoDB single-table storage, Go Lambdas behind an
+  HTTP API, and a Step Functions workflow for the multi-step booking flow.
+
+Parameters:
+  PaymentFailureRate:
+    Type: String
+    Default: "0.2"
+    AllowedPattern: "^(0(\\.\\d+)?|1(\\.0+)?)$"
+    Description: Probability (0.0 - 1.0) that the mock payment step declines a booking.
+  NotificationEmail:
+    Type: String
+    Default: ""
+    Description: Optional email address to subscribe to booking notifications. Leave empty to skip.
+
+Globals:
+  Function:
+    Runtime: provided.al2023
+    Architectures: [arm64]
+    Handler: bootstrap
+    MemorySize: 128
+    Timeout: 10
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref AppTable
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # Storage: one DynamoDB table (single-table design)
+  #
+  #   PK              SK                            what
+  #   EVENT#<id>      META                          event details
+  #   EVENT#<id>      SEAT#<nnn>                    one seat, status AVAILABLE|RESERVED|BOOKED
+  #   USER#<id>       BOOKING#<timestamp>#<id>      one booking, newest last
+  #
+  # GSI1 is sparse and overloaded. Only items that set GSI1PK/GSI1SK appear in it:
+  #   GSI1PK=EVENTS          GSI1SK=<startsAt>#<id>   -> list events by date (no Scan)
+  #   GSI1PK=BOOKING#<id>    GSI1SK=BOOKING           -> fetch a booking by id (polling)
+  # ---------------------------------------------------------------------------
+  AppTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: PK, AttributeType: S }
+        - { AttributeName: SK, AttributeType: S }
+        - { AttributeName: GSI1PK, AttributeType: S }
+        - { AttributeName: GSI1SK, AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - { AttributeName: GSI1PK, KeyType: HASH }
+            - { AttributeName: GSI1SK, KeyType: RANGE }
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # Loads sample events. Not exposed through the API; invoke with `make seed`.
+  SeedFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      CodeUri: .
+      Timeout: 30
+      Policies:
+        - DynamoDBWritePolicy:
+            TableName: !Ref AppTable
+
+  # ---------------------------------------------------------------------------
+  # API: HTTP API in front of Go Lambdas. Routes carry the /api prefix because
+  # CloudFront forwards /api/* to this API unchanged (same origin, so no CORS).
+  # ---------------------------------------------------------------------------
+  BookingApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 25
+
+  GetEventsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AppTable
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref BookingApi
+            Method: GET
+            Path: /api/events
+
+  GetEventFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      CodeUri: .
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AppTable
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref BookingApi
+            Method: GET
+            Path: /api/events/{id}
+
+Outputs:
+  TableName:
+    Description: DynamoDB table holding events, seats and bookings
+    Value: !Ref AppTable
+  ApiUrl:
+    Description: HTTP API base URL (the frontend reaches it through CloudFront at /api)
+    Value: !Sub "https://${BookingApi}.execute-api.${AWS::Region}.amazonaws.com"
+  SeedFunctionName:
+    Description: Invoke once after deploy to load sample events
+    Value: !Ref SeedFunction

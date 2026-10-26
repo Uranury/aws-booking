@@ -1,0 +1,11 @@
+# Build output
+/bin/
+/.aws-sam/
+bootstrap
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
